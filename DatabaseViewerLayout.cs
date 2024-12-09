@@ -4,24 +4,30 @@ using Terminal.Gui.Trees;
 
 public class DatabaseViewerLayout : Window
 {
-    DatabaseTree databaseWindow;
+    DatabaseTreeView databaseWindow;
     Window databaseResultsWindow;
     Window logWindow;
     public ustring FilePath { get; init; } = "";
-    TreeView tableTree;
 
     public DatabaseViewerLayout(ustring filepath)
     {
         FilePath = filepath;
 
-        databaseWindow = new DatabaseTreeView()
+        databaseWindow = new DatabaseTreeView(FilePath)
         {
-            Title =
-                $"{Path.GetFileName((string)FilePath)} ({tableTree.ObjectActivationKey} to select)",
             X = 0,
             Y = 0,
             Width = Dim.Percent(25),
             Height = Dim.Percent(50),
+        };
+        databaseWindow.OnSelect += (w) =>
+        {
+            w.X = Pos.Right(databaseWindow);
+            w.Y = 0;
+            Remove(databaseResultsWindow);
+
+            databaseResultsWindow = w;
+            Add(databaseResultsWindow);
         };
         databaseResultsWindow = new Window("Results")
         {
