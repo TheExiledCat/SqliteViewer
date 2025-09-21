@@ -12,7 +12,7 @@ use ratatui::{
     DefaultTerminal, Terminal,
     crossterm::{
         ExecutableCommand,
-        event::{Event, KeyCode, KeyEvent, read},
+        event::{Event, KeyCode, KeyEvent, KeyModifiers, read},
     },
     layout::Constraint,
     style::{Style, Stylize},
@@ -51,12 +51,12 @@ impl App {
         self.terminal
             .draw(|f| {
                 let event = read();
-                if let Ok(Event::Key(KeyEvent {
-                    code: KeyCode::Char('q'),
-                    ..
-                })) = &event
-                {
-                    render_next = false;
+                if let Ok(Event::Key(key_event)) = &event {
+                    if let KeyCode::Char('q') = key_event.code
+                        && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        render_next = false;
+                    }
                 }
                 if let Ok(Event::Key(event)) = &event {
                     let database_state = &mut self.state.borrow_mut().database_state;
@@ -97,24 +97,4 @@ impl AppState {
         return state;
     }
     pub fn sync(&mut self) {}
-}
-
-impl SqliteDatabaseState {
-    pub fn widget(&self) -> SqliteDatabaseStateWidget {
-        let state = self;
-        return SqliteDatabaseStateWidget { state };
-    }
-}
-
-pub struct SqliteDatabaseStateWidget<'a> {
-    state: &'a SqliteDatabaseState,
-}
-
-impl<'a> Widget for SqliteDatabaseStateWidget<'a> {
-    fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
-    where
-        Self: Sized,
-    {
-        Paragraph::new(format!("{}", self.state.current_query)).render(area, buf);
-    }
 }
