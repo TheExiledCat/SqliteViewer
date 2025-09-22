@@ -1,17 +1,16 @@
-use std::ptr;
-
-use indexmap::IndexMap;
 use ratatui::{
     layout::{Constraint, Layout},
     style::{Style, Stylize},
-    text::Text,
-    widgets::{Block, Cell, List, Paragraph, Row, StatefulWidget, Table, TableState, Widget},
+    text::{Line, Span, Text},
+    widgets::{Block, List, Padding, Paragraph, Row, Table, Widget},
+};
+use sqlparser::{
+    dialect::SQLiteDialect,
+    keywords::Keyword,
+    tokenizer::{Token, Tokenizer},
 };
 
-use crate::data::{
-    sqlite_database::{SqliteDatabaseState, SqliteDatabaseStateMode},
-    sqlite_table::SqliteTable,
-};
+use crate::data::sqlite_database::{SqliteDatabaseState, SqliteDatabaseStateMode};
 
 impl SqliteDatabaseState {
     pub fn widget(&self) -> SqliteDatabaseStateWidget {
@@ -62,16 +61,91 @@ impl<'a> Widget for SqliteDatabaseStateWidget<'a> {
         //Query system
         let query_layout = Layout::vertical([Constraint::Percentage(30), Constraint::Fill(1)])
             .split(main_layout[1]);
-        let mut query_block = main_block.clone();
+        let mut query_block = main_block.clone().padding(Padding::horizontal(1));
         if let SqliteDatabaseStateMode::QUERY_TOOL = self.database_state.mode {
             query_block = query_block.red();
         }
-        Paragraph::new(format!("{}█", self.database_state.current_query))
+
+        let query_tokens = match Tokenizer::new(
+            &SQLiteDialect {},
+            &self.database_state.current_query,
+        )
+        .tokenize()
+        {
+            Ok(tokens) => tokens,
+            Err(_) => {
+                // Fallback: just return everything as raw text
+                vec![Token::Word(sqlparser::tokenizer::Word {
+                    value: self.database_state.current_query.to_string(),
+                    quote_style: None,
+                    keyword: Keyword::NoKeyword,
+                })]
+            }
+        };
+
+        let mut column = 0;
+        let query_text: Vec<Span> = query_tokens
+            .iter()
+            .enumerate()
+            .flat_map(|(i, t)| {
+                let len = t.to_string().chars().count();
+                let mut span = [match t {
+                    Token::Word(w) => {
+                        if let Keyword::NoKeyword = w.keyword {
+                            if let Some(_) = self.database_state.tables.iter().find(|table| {
+                                table.name.to_lowercase() == t.to_string().to_lowercase()
+                            }) {
+                                Span::raw(t.to_string()).red()
+                            } else {
+                                Span::raw(&w.value)
+                            }
+                        } else {
+                            Span::raw(&w.value).blue()
+                        }
+                    }
+                    _ => Span::from(t.to_string()),
+                }]
+                .to_vec();
+                let (col, row) = self.database_state.current_query_cursor;
+                let inner_span = span[0].clone();
+                if col >= column && col < column + len {
+                    // the cursor should be in this token
+                    let style = inner_span.style;
+                    let content = inner_span.content.clone();
+                    let (left, right) = content.split_at(col - column);
+                    let (mid, right) = right.split_at(1);
+                    let left_styled = Span::raw(left.to_owned()).style(style.clone());
+                    let right_styled = Span::raw(right.to_owned()).style(style.clone());
+                    let mid_styled = Span::raw(mid.to_owned()).reset().reversed();
+                    span = [left_styled, mid_styled, right_styled].to_vec();
+                }
+                column += len;
+                return span;
+            })
+            .chain(
+                if self.database_state.current_query_cursor.0
+                    == self.database_state.current_query.chars().count()
+                {
+                    let mut extra = Vec::new();
+                    extra.push(Span::raw("█").reset());
+                    extra
+                } else {
+                    [].to_vec()
+                },
+            )
+            .collect();
+
+        Paragraph::new(Line::from(query_text))
             .reset()
             .block(query_block)
             .render(query_layout[0], buf);
         if let Some(err) = &self.database_state.error {
-            Paragraph::new(format!("ERROR: {}", err.to_string())).render(query_layout[1], buf);
+            Line::from(vec![
+                Span::raw("ERROR").red(),
+                Span::raw(": "),
+                Span::raw(err.to_string()),
+            ])
+            .render(query_layout[1], buf);
             return;
         }
         if let Some(queried) = &self.database_state.queried_table_state {
@@ -116,13 +190,43 @@ impl<'a> Widget for SqliteDatabaseStateWidget<'a> {
                 Widget::render(
                     Table::new(rows, constraints)
                         .header(Row::new(header_row).style(Style::new().reversed()))
-                        .block(main_block),
+                        .block(main_block.padding(Padding::uniform(1))),
                     query_layout[1],
                     buf,
                 );
             } else {
-                Paragraph::new("QUERY OK: 0 Rows returned").render(query_layout[1], buf);
+                Line::from(
+                    [
+                        Span::raw("QUERY "),
+                        Span::raw("OK").green(),
+                        Span::raw(": 0 Rows returned"),
+                    ]
+                    .to_vec(),
+                )
+                .render(query_layout[1], buf);
             }
         }
     }
+}
+
+fn get_last_non_whitespace_token(tokens: &[Token], column: usize) -> Option<(usize, &Token)> {
+    if tokens.len() == 0 {
+        return None;
+    }
+    let mut i = 0;
+    let mut last_non_whitespace = None;
+    let mut current_column = 0;
+    while current_column <= column {
+        let token = &tokens[i];
+
+        if let Token::Whitespace(_) = token {
+            i += 1;
+            current_column += token.to_string().chars().count();
+            continue;
+        }
+        i += 1;
+        current_column += token.to_string().chars().count();
+        last_non_whitespace = Some((i, token));
+    }
+    return last_non_whitespace;
 }

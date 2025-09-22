@@ -54,6 +54,7 @@ pub struct SqliteDatabaseState {
     pub tables: Vec<SqliteTable>,
     pub queried_table_state: Option<SqliteQueryResult>,
     pub current_query: String,
+    pub current_query_cursor: (usize, usize),
     pub selected_table: Option<usize>,
     pub selected_table_option: Option<TableOption>,
     pub error: Option<Error>,
@@ -66,6 +67,7 @@ impl SqliteDatabaseState {
             tables: database.tables(),
             queried_table_state: None,
             current_query: String::new(),
+            current_query_cursor: (0, 0),
             selected_table: None,
             selected_table_option: None,
             mode: SqliteDatabaseStateMode::TABLE_SELECTION,
@@ -109,16 +111,36 @@ impl SqliteDatabaseState {
             SqliteDatabaseStateMode::QUERY_TOOL => {
                 match event.code {
                     KeyCode::Backspace => {
-                        self.current_query.pop();
+                        if self.current_query.chars().count() == 0 {
+                            return;
+                        }
+                        self.current_query
+                            .remove(self.current_query_cursor.0.saturating_sub(1));
+                        self.current_query_cursor.0 = self.current_query_cursor.0.saturating_sub(1);
                     }
                     KeyCode::Enter => {
                         //execute
                         self.execute();
                     }
                     KeyCode::Char(c) => {
-                        self.current_query.push(c);
+                        self.current_query.insert(self.current_query_cursor.0, c);
+                        self.current_query_cursor.0 += 1;
                     }
                     KeyCode::Esc => self.mode = SqliteDatabaseStateMode::TABLE_SELECTION,
+                    KeyCode::Left => {
+                        self.current_query_cursor.0 = self
+                            .current_query_cursor
+                            .0
+                            .saturating_sub(1)
+                            .clamp(0, self.current_query.chars().count())
+                    }
+                    KeyCode::Right => {
+                        self.current_query_cursor.0 = self
+                            .current_query_cursor
+                            .0
+                            .saturating_add(1)
+                            .clamp(0, self.current_query.chars().count())
+                    }
                     _ => (),
                 }
             }
@@ -166,6 +188,7 @@ impl SqliteDatabaseState {
             "SELECT * FROM {}",
             self.tables[self.selected_table.unwrap_or(0)].name
         );
+        self.current_query_cursor = (self.current_query.chars().count(), 0);
         self.execute();
     }
     pub fn sync(&mut self, database: &SqliteDatabase) {
