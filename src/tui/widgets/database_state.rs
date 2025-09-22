@@ -1,11 +1,17 @@
+use std::ptr;
+
 use indexmap::IndexMap;
 use ratatui::{
     layout::{Constraint, Layout},
     style::{Style, Stylize},
-    widgets::{Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget},
+    text::Text,
+    widgets::{Block, Cell, List, Paragraph, Row, StatefulWidget, Table, TableState, Widget},
 };
 
-use crate::data::sqlite_database::SqliteDatabaseState;
+use crate::data::{
+    sqlite_database::{SqliteDatabaseState, SqliteDatabaseStateMode},
+    sqlite_table::SqliteTable,
+};
 
 impl SqliteDatabaseState {
     pub fn widget(&self) -> SqliteDatabaseStateWidget {
@@ -25,20 +31,54 @@ impl<'a> Widget for SqliteDatabaseStateWidget<'a> {
     where
         Self: Sized,
     {
-        let layout =
-            Layout::vertical([Constraint::Percentage(30), Constraint::Fill(1)]).split(area);
-        Paragraph::new(format!("{}", self.database_state.current_query))
-            .block(Block::bordered())
-            .render(layout[0], buf);
+        let main_layout =
+            Layout::horizontal([Constraint::Percentage(25), Constraint::Fill(1)]).split(area);
+        let main_block = Block::bordered();
+        //Table list system
+        let mut list_block = main_block.clone();
+        if let SqliteDatabaseStateMode::TABLE_SELECTION = self.database_state.mode {
+            list_block = list_block.red();
+        }
+        let list = List::new(self.database_state.tables.iter().enumerate().map(|(i, t)| {
+            let mut text = Text::raw(t.name.as_str()).centered();
+
+            if let Some(selected) = self.database_state.selected_table {
+                if selected == i {
+                    text = text.style(Style::new().reversed());
+
+                    match self.database_state.mode {
+                        SqliteDatabaseStateMode::QUERY_TOOL => text = text.red(),
+                        _ => (),
+                    }
+                }
+            }
+
+            return text;
+        }))
+        .reset()
+        .block(list_block);
+        Widget::render(list, main_layout[0], buf);
+
+        //Query system
+        let query_layout = Layout::vertical([Constraint::Percentage(30), Constraint::Fill(1)])
+            .split(main_layout[1]);
+        let mut query_block = main_block.clone();
+        if let SqliteDatabaseStateMode::QUERY_TOOL = self.database_state.mode {
+            query_block = query_block.red();
+        }
+        Paragraph::new(format!("{}█", self.database_state.current_query))
+            .reset()
+            .block(query_block)
+            .render(query_layout[0], buf);
         if let Some(err) = &self.database_state.error {
-            Paragraph::new(format!("ERROR: {}", err.to_string())).render(layout[1], buf);
+            Paragraph::new(format!("ERROR: {}", err.to_string())).render(query_layout[1], buf);
             return;
         }
         if let Some(queried) = &self.database_state.queried_table_state {
             if let Some(affected) = queried.rows_affected {
                 // just show changed rows:
                 Paragraph::new(format!("QUERY OK: {} rows affected", affected))
-                    .render(layout[1], buf);
+                    .render(query_layout[1], buf);
             } else if queried.rows.len() > 0 {
                 // show table
                 const max_spacing: u8 = 30;
@@ -75,12 +115,13 @@ impl<'a> Widget for SqliteDatabaseStateWidget<'a> {
                 let constraints = [Constraint::Max(max_spacing as u16)].repeat(rows.len());
                 Widget::render(
                     Table::new(rows, constraints)
-                        .header(Row::new(header_row).style(Style::new().reversed())),
-                    layout[1],
+                        .header(Row::new(header_row).style(Style::new().reversed()))
+                        .block(main_block),
+                    query_layout[1],
                     buf,
                 );
             } else {
-                Paragraph::new("QUERY OK: 0 Rows returned").render(layout[1], buf);
+                Paragraph::new("QUERY OK: 0 Rows returned").render(query_layout[1], buf);
             }
         }
     }

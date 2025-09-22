@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, process::CommandEnvs};
 
 use clap::Parser;
 use cli::CommandLine;
@@ -11,11 +11,12 @@ mod data;
 mod tui;
 fn main() -> Result<(), rusqlite::Error> {
     let command_line = CommandLine::parse();
-    let conn = Connection::open(command_line.file_path)?;
+    let file_path = command_line.file_path;
+    let conn = Connection::open(&file_path)?;
 
-    let db = SqliteDatabase::new(conn);
+    let db = SqliteDatabase::new(conn, file_path);
     let terminal = ratatui::init();
-    let mut app = App::new(terminal, 120, 10, db);
+    let mut app = App::new(terminal, 120, 3, db);
 
     while app.draw() {}
     ratatui::restore();

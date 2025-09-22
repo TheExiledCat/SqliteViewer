@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.47", features = ["derive"] }
 clap_derive = "4.5.47"
+humantime = "2.3.0"
 indexmap = "2.11.4"
 ratatui = "0.29.0"
 rusqlite = "0.37.0"
+time-humanize = "0.1.3"
