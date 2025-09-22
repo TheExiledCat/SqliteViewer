@@ -15,7 +15,7 @@ fn main() -> Result<(), rusqlite::Error> {
 
     let db = SqliteDatabase::new(conn);
     let terminal = ratatui::init();
-    let mut app = App::new(terminal, 30, 10, db);
+    let mut app = App::new(terminal, 120, 10, db);
 
     while app.draw() {}
     ratatui::restore();

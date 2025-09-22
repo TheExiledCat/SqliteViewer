@@ -1,10 +1,7 @@
 use std::{ops::Deref, rc::Rc};
 
-use ratatui::{
-    crossterm::event::{KeyCode, KeyEvent},
-    widgets::Table,
-};
-use rusqlite::{Connection, types::Value};
+use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use rusqlite::{Connection, Error};
 
 use super::{sqlite_query::SqliteQueryResult, sqlite_table::SqliteTable};
 pub struct SqliteDatabase {
@@ -44,6 +41,7 @@ pub struct SqliteDatabaseState {
     pub tables: Vec<SqliteTable>,
     pub queried_table_state: Option<SqliteQueryResult>,
     pub current_query: String,
+    pub error: Option<Error>,
 }
 impl SqliteDatabaseState {
     pub fn new(database: &SqliteDatabase) -> Self {
@@ -52,6 +50,7 @@ impl SqliteDatabaseState {
             tables: database.tables(),
             queried_table_state: None,
             current_query: String::new(),
+            error: None,
         };
     }
 
@@ -62,6 +61,7 @@ impl SqliteDatabaseState {
             }
             KeyCode::Enter => {
                 //execute
+                self.execute();
             }
             KeyCode::Char(c) => {
                 self.current_query.push(c);
@@ -70,8 +70,14 @@ impl SqliteDatabaseState {
         }
     }
 
-    pub fn execute(&mut self) -> Result<(), rusqlite::Error> {
-        let mut stmt = self.connection.prepare(&self.current_query).unwrap();
+    pub fn execute(&mut self) {
+        self.error = None;
+        let stmt = self.connection.prepare(&self.current_query);
+        if let Err(e) = stmt {
+            self.error = Some(e);
+            return;
+        }
+        let mut stmt = stmt.unwrap();
 
         if stmt.readonly() {
             let column_names = stmt
@@ -79,14 +85,20 @@ impl SqliteDatabaseState {
                 .iter()
                 .map(|s| s.deref().to_owned())
                 .collect();
-            let rows = stmt.query([])?;
-            self.queried_table_state = Some(SqliteQueryResult::new(rows, column_names));
+            let rows = stmt.query([]);
+            if let Ok(rows) = rows {
+                self.queried_table_state = Some(SqliteQueryResult::new(rows, column_names));
+            } else if let Err(e) = rows {
+                self.error = Some(e);
+            }
         } else {
-            let rows_changed = stmt.execute([])?;
-            self.queried_table_state = Some(SqliteQueryResult::mutated(rows_changed));
+            let rows_changed = stmt.execute([]);
+            if let Ok(rows_changed) = rows_changed {
+                self.queried_table_state = Some(SqliteQueryResult::mutated(rows_changed));
+            } else if let Err(e) = rows_changed {
+                self.error = Some(e);
+            }
         }
-
-        return Ok(());
     }
     pub fn select_table(table: &SqliteTable) {
         todo!();
