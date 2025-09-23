@@ -8,8 +8,10 @@ clap = { version = "4.5.47", features = ["derive"] }
 clap_derive = "4.5.47"
 humantime = "2.3.0"
 indexmap = "2.11.4"
+num_enum = "0.7.4"
 ratatui = "0.29.0"
 rusqlite = "0.37.0"
 sqlparser = "0.58.0"
 strsim = "0.11.1"
+strum = { version = "0.27.2", features = ["derive", "strum_macros"] }
 time-humanize = "0.1.3"

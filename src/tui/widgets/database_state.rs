@@ -10,7 +10,7 @@ use sqlparser::{
     tokenizer::{Token, Tokenizer},
 };
 
-use crate::data::sqlite_database::{SqliteDatabaseState, SqliteDatabaseStateMode};
+use crate::data::sqlite_database::{SqliteDatabaseState, SqliteDatabaseStateMode, TableOption};
 
 impl SqliteDatabaseState {
     pub fn widget(&self) -> SqliteDatabaseStateWidget {
@@ -32,6 +32,8 @@ impl<'a> Widget for SqliteDatabaseStateWidget<'a> {
     {
         let main_layout =
             Layout::horizontal([Constraint::Percentage(25), Constraint::Fill(1)]).split(area);
+        let left_layout =
+            Layout::vertical([Constraint::Fill(1), Constraint::Max(3)]).split(main_layout[0]);
         let main_block = Block::bordered();
         //Table list system
         let mut list_block = main_block.clone();
@@ -56,7 +58,35 @@ impl<'a> Widget for SqliteDatabaseStateWidget<'a> {
         }))
         .reset()
         .block(list_block);
-        Widget::render(list, main_layout[0], buf);
+        Widget::render(list, left_layout[0], buf);
+
+        //Table options
+        let options_layout =
+            Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(left_layout[1]);
+        let mut new_table_block = main_block.clone();
+        if let Some(option) = self.database_state.selected_table_option {
+            if option == TableOption::CREATE as usize {
+                new_table_block = new_table_block.red();
+            }
+        }
+        let new_table_button = Paragraph::new("Create")
+            .centered()
+            .block(new_table_block)
+            .bold();
+        Widget::render(new_table_button, options_layout[0], buf);
+
+        let mut custom_block = main_block.clone();
+        if let Some(option) = self.database_state.selected_table_option {
+            if option == TableOption::CUSTOM as usize {
+                custom_block = custom_block.red();
+            }
+        }
+        let custom_button = Paragraph::new("Query Tool")
+            .centered()
+            .block(custom_block)
+            .bold();
+
+        Widget::render(custom_button, options_layout[1], buf);
 
         //Query system
         let query_layout = Layout::vertical([Constraint::Percentage(30), Constraint::Fill(1)])

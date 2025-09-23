@@ -1,7 +1,9 @@
-use std::{ops::Deref, path::PathBuf, rc::Rc};
+use std::{any::Any, ops::Deref, path::PathBuf, rc::Rc};
 
+use num_enum::TryFromPrimitive;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use rusqlite::{Connection, Error};
+use strum::EnumCount;
 
 use super::{sqlite_query::SqliteQueryResult, sqlite_table::SqliteTable};
 #[derive(Clone)]
@@ -45,6 +47,7 @@ pub enum SqliteDatabaseStateMode {
     QUERY_TOOL,
 }
 #[repr(usize)]
+#[derive(EnumCount, TryFromPrimitive)]
 pub enum TableOption {
     CREATE = 0,
     CUSTOM = 1,
@@ -56,7 +59,7 @@ pub struct SqliteDatabaseState {
     pub current_query: String,
     pub current_query_cursor: (usize, usize),
     pub selected_table: Option<usize>,
-    pub selected_table_option: Option<TableOption>,
+    pub selected_table_option: Option<usize>,
     pub error: Option<Error>,
     pub mode: SqliteDatabaseStateMode,
 }
@@ -105,6 +108,10 @@ impl SqliteDatabaseState {
                         self.select_table();
                     }
                 }
+                KeyCode::Tab => {
+                    self.mode = SqliteDatabaseStateMode::TABLE_OPTION_SELECTION;
+                    self.selected_table_option = Some(0);
+                }
 
                 _ => (),
             },
@@ -126,7 +133,10 @@ impl SqliteDatabaseState {
                         self.current_query.insert(self.current_query_cursor.0, c);
                         self.current_query_cursor.0 += 1;
                     }
-                    KeyCode::Esc => self.mode = SqliteDatabaseStateMode::TABLE_SELECTION,
+                    KeyCode::Esc => {
+                        self.mode = SqliteDatabaseStateMode::TABLE_SELECTION;
+                        self.selected_table_option = None
+                    }
                     KeyCode::Left => {
                         self.current_query_cursor.0 = self
                             .current_query_cursor
@@ -144,7 +154,39 @@ impl SqliteDatabaseState {
                     _ => (),
                 }
             }
-            SqliteDatabaseStateMode::TABLE_OPTION_SELECTION => todo!(),
+            SqliteDatabaseStateMode::TABLE_OPTION_SELECTION => match event.code {
+                KeyCode::Tab => {
+                    self.mode = SqliteDatabaseStateMode::TABLE_SELECTION;
+                    self.selected_table_option = None;
+                }
+                KeyCode::Right => {
+                    if let Some(option) = self.selected_table_option {
+                        self.selected_table_option =
+                            Some((option + 1).clamp(0, TableOption::COUNT - 1));
+                    }
+                }
+                KeyCode::Left => {
+                    if let Some(option) = self.selected_table_option {
+                        self.selected_table_option = Some(option.saturating_sub(1));
+                    }
+                }
+                KeyCode::Enter => {
+                    if let Some(option) = self.selected_table_option {
+                        match TableOption::try_from(option) {
+                            Ok(option) => match option {
+                                TableOption::CREATE => (),
+                                TableOption::CUSTOM => {
+                                    self.selected_table = None;
+                                    self.select_table();
+                                }
+                                _ => (),
+                            },
+                            Err(_) => (),
+                        }
+                    }
+                }
+                _ => (),
+            },
         }
     }
 
@@ -184,12 +226,14 @@ impl SqliteDatabaseState {
         }
         self.mode = SqliteDatabaseStateMode::QUERY_TOOL;
 
-        self.current_query = format!(
-            "SELECT * FROM {}",
-            self.tables[self.selected_table.unwrap_or(0)].name
-        );
-        self.current_query_cursor = (self.current_query.chars().count(), 0);
-        self.execute();
+        if let Some(selected) = self.selected_table {
+            self.current_query = format!("SELECT * FROM {}", self.tables[selected].name);
+            self.current_query_cursor = (self.current_query.chars().count(), 0);
+            self.execute();
+        } else {
+            self.current_query.clear();
+            self.current_query_cursor = (0, 0);
+        }
     }
     pub fn sync(&mut self, database: &SqliteDatabase) {
         self.tables = database.tables();
